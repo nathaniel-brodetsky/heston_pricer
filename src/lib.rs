@@ -255,6 +255,103 @@ fn price_barrier_heston(
     Ok((price, price_err, knock_prob))
 }
 
+fn bs_call(s: f64, k: f64, r: f64, t: f64, sigma: f64) -> f64 {
+    if sigma <= 0.0 || t <= 0.0 {
+        return (s - k * (-r * t).exp()).max(0.0);
+    }
+    let sqrt_t = t.sqrt();
+    let d1 = ((s / k).ln() + (r + 0.5 * sigma * sigma) * t) / (sigma * sqrt_t);
+    let d2 = d1 - sigma * sqrt_t;
+    s * norm_cdf(d1) - k * (-r * t).exp() * norm_cdf(d2)
+}
+
+#[inline]
+fn norm_cdf(x: f64) -> f64 {
+    0.5 * erfc(-x / SQRT_2)
+}
+
+fn erfc(x: f64) -> f64 {
+    let t = 1.0 / (1.0 + 0.3275911 * x.abs());
+    let y = 1.0
+        - (0.254829592
+            + (-0.284496736 + (1.421413741 + (-1.453152027 + 1.061405429 * t) * t) * t) * t)
+            * t
+            * (-(x * x)).exp();
+    if x >= 0.0 { y } else { 2.0 - y }
+}
+
+fn bs_implied_vol(s: f64, k: f64, r: f64, t: f64, target: f64) -> f64 {
+    let intrinsic = (s - k * (-r * t).exp()).max(0.0);
+    if target <= intrinsic + 1e-10 {
+        return 0.0;
+    }
+
+    let f = |sigma: f64| bs_call(s, k, r, t, sigma) - target;
+
+    let mut a = 1e-6_f64;
+    let mut b = 10.0_f64;
+    let mut fa = f(a);
+    let mut fb = f(b);
+
+    if fa * fb > 0.0 {
+        return 0.5 * (a + b);
+    }
+
+    let tol = 1e-7;
+    let mut c = a;
+    let mut fc = fa;
+    let mut mflag = true;
+    let mut s_pt;
+    let mut d = 0.0_f64;
+
+    for _ in 0..50 {
+        if (b - a).abs() < tol {
+            break;
+        }
+
+        if fa != fc && fb != fc {
+            s_pt = a * fb * fc / ((fa - fb) * (fa - fc))
+                + b * fa * fc / ((fb - fa) * (fb - fc))
+                + c * fa * fb / ((fc - fa) * (fc - fb));
+        } else {
+            s_pt = b - fb * (b - a) / (fb - fa);
+        }
+
+        let cond1 = !((3.0 * a + b) / 4.0 <= s_pt && s_pt <= b);
+        let cond2 = mflag && (s_pt - b).abs() >= (b - c).abs() / 2.0;
+        let cond3 = !mflag && (s_pt - b).abs() >= (c - d).abs() / 2.0;
+        let cond4 = mflag && (b - c).abs() < tol;
+        let cond5 = !mflag && (c - d).abs() < tol;
+
+        if cond1 || cond2 || cond3 || cond4 || cond5 {
+            s_pt = (a + b) / 2.0;
+            mflag = true;
+        } else {
+            mflag = false;
+        }
+
+        let fs = f(s_pt);
+        d = c;
+        c = b;
+        fc = fb;
+
+        if fa * fs < 0.0 {
+            b = s_pt;
+            fb = fs;
+        } else {
+            a = s_pt;
+            fa = fs;
+        }
+
+        if fa.abs() < fb.abs() {
+            std::mem::swap(&mut a, &mut b);
+            std::mem::swap(&mut fa, &mut fb);
+        }
+    }
+
+    b
+}
+
 #[pymodule]
 fn heston_pricer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(price_heston, m)?)?;
