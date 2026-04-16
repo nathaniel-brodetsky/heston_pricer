@@ -67,3 +67,34 @@ fn simulate_path(p: HestonParams, rng: &mut SmallRng) -> f64 {
 
     s
 }
+
+fn simulate_path_with_barrier(p: HestonParams, rng: &mut SmallRng, barrier: f64) -> (f64, bool) {
+    let dt = p.t / p.n_steps as f64;
+    let sqrt_dt = dt.sqrt();
+    let (rho, rho_bar) = cholesky(p.rho);
+
+    let mut s = p.s0;
+    let mut v = p.v0;
+    let mut knocked = false;
+
+    for _ in 0..p.n_steps {
+        let z1: f64 = StandardNormal.sample(rng);
+        let z2: f64 = StandardNormal.sample(rng);
+
+        let w1 = z1;
+        let w2 = rho * z1 + rho_bar * z2;
+
+        let v_plus = truncate(v);
+
+        v += p.kappa * (p.theta - v_plus) * dt + p.xi * v_plus.sqrt() * sqrt_dt * w2;
+
+        s *= ((p.r - 0.5 * v_plus) * dt + v_plus.sqrt() * sqrt_dt * w1).exp();
+
+        if s <= barrier {
+            knocked = true;
+            break;
+        }
+    }
+
+    (s, knocked)
+}
