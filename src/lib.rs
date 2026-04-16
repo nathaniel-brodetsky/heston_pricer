@@ -255,6 +255,59 @@ fn price_barrier_heston(
     Ok((price, price_err, knock_prob))
 }
 
+#[pyfunction]
+#[pyo3(signature = (
+    s0, strikes, r, t, v0, kappa, theta, xi, rho,
+    n_paths = 500_000,
+    n_steps = 252
+))]
+fn implied_vol_smile(
+    s0: f64,
+    strikes: Vec<f64>,
+    r: f64,
+    t: f64,
+    v0: f64,
+    kappa: f64,
+    theta: f64,
+    xi: f64,
+    rho: f64,
+    n_paths: usize,
+    n_steps: usize,
+) -> PyResult<Vec<f64>> {
+    let ivs: Vec<f64> = strikes
+        .par_iter()
+        .map(|&k| {
+            let params = HestonParams {
+                s0,
+                v0,
+                r,
+                kappa,
+                theta,
+                xi,
+                rho,
+                t,
+                n_steps,
+            };
+            let discount = (-r * t).exp();
+
+            let sum_payoff: f64 = (0..n_paths)
+                .into_par_iter()
+                .map(|idx| {
+                    let mut rng = SmallRng::seed_from_u64(idx as u64 ^ (k.to_bits()));
+                    let s_t = simulate_path(params, &mut rng);
+                    (s_t - k).max(0.0)
+                })
+                .sum();
+
+            let heston_call = discount * sum_payoff / n_paths as f64;
+
+            bs_implied_vol(s0, k, r, t, heston_call)
+        })
+        .collect();
+
+    Ok(ivs)
+}
+
 fn bs_call(s: f64, k: f64, r: f64, t: f64, sigma: f64) -> f64 {
     if sigma <= 0.0 || t <= 0.0 {
         return (s - k * (-r * t).exp()).max(0.0);
@@ -352,9 +405,11 @@ fn bs_implied_vol(s: f64, k: f64, r: f64, t: f64, target: f64) -> f64 {
     b
 }
 
+
 #[pymodule]
 fn heston_pricer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(price_heston, m)?)?;
     m.add_function(wrap_pyfunction!(price_barrier_heston, m)?)?;
+    m.add_function(wrap_pyfunction!(implied_vol_smile, m)?)?;
     Ok(())
 }
