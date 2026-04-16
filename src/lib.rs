@@ -1,14 +1,20 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
+#[inline(always)]
+fn cholesky(rho: f64) -> (f64, f64) {
+    (rho, (1.0 - rho * rho).sqrt())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+#[inline(always)]
+fn truncate(v: f64) -> f64 {
+    v.max(0.0)
+}
+#[derive(Clone, Copy)]
+struct HestonParams {
+    s0: f64,
+    v0: f64,
+    r: f64,
+    kappa: f64,
+    theta: f64,
+    xi: f64,
+    rho: f64,
+    t: f64,
+    n_steps: usize,
 }
