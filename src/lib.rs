@@ -187,3 +187,77 @@ fn price_heston(
 
     Ok((price, price_err))
 }
+
+#[pyfunction]
+#[pyo3(signature = (
+    s0, k, r, t, v0, kappa, theta, xi, rho, barrier,
+    n_paths = 1_000_000,
+    n_steps = 252
+))]
+fn price_barrier_heston(
+    s0: f64,
+    k: f64,
+    r: f64,
+    t: f64,
+    v0: f64,
+    kappa: f64,
+    theta: f64,
+    xi: f64,
+    rho: f64,
+    barrier: f64,
+    n_paths: usize,
+    n_steps: usize,
+) -> PyResult<(f64, f64, f64)> {
+    if barrier >= s0 {
+        return Err(PyValueError::new_err(
+            "barrier must be strictly below s0 for a down-and-out option",
+        ));
+    }
+    if s0 <= 0.0 || k <= 0.0 || barrier <= 0.0 {
+        return Err(PyValueError::new_err("s0, k, barrier must be positive"));
+    }
+
+    let params = HestonParams {
+        s0,
+        v0,
+        r,
+        kappa,
+        theta,
+        xi,
+        rho,
+        t,
+        n_steps,
+    };
+    let discount = (-r * t).exp();
+
+    let (sum_payoff, sum_sq, knocked_count): (f64, f64, u64) = (0..n_paths)
+        .into_par_iter()
+        .map(|path_idx| {
+            let mut rng = SmallRng::seed_from_u64(path_idx as u64 ^ 0xDEAD_BEEF);
+            let (s_t, knocked) = simulate_path_with_barrier(params, &mut rng, barrier);
+
+            let payoff = if knocked { 0.0 } else { (s_t - k).max(0.0) };
+            (payoff, payoff * payoff, knocked as u64)
+        })
+        .reduce(
+            || (0.0, 0.0, 0),
+            |(a1, b1, c1), (a2, b2, c2)| (a1 + a2, b1 + b2, c1 + c2),
+        );
+
+    let n = n_paths as f64;
+    let mean = sum_payoff / n;
+    let variance = (sum_sq / n) - (mean * mean);
+    let std_err = (variance / n).sqrt();
+    let price = discount * mean;
+    let price_err = discount * std_err;
+    let knock_prob = knocked_count as f64 / n;
+
+    Ok((price, price_err, knock_prob))
+}
+
+#[pymodule]
+fn heston_pricer(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(price_heston, m)?)?;
+    m.add_function(wrap_pyfunction!(price_barrier_heston, m)?)?;
+    Ok(())
+}
