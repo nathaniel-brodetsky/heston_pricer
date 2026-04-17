@@ -1,9 +1,9 @@
 [package]
 name = "heston_pricer"
 version = "0.1.0"
-edition = "2024"
-authors = ["Nathaniel Brodetsky"]
-description = "Ultra-low-latency Heston stochastic-volatillity Monte Carlo pricer (Rust + PyO3)"
+edition = "2021"
+authors = ["Nathaniel Brodetsky <quant@mm-desk.io>"]
+description = "Ultra-low-latency Heston stochastic-volatility Monte Carlo pricer (Rust + PyO3)"
 
 [lib]
 name = "heston_pricer"
@@ -11,9 +11,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.22", features = ["extension-module"] }
-rayon = "1.10"
+rayon = "1.8"
 rand = { version = "0.8", features = ["small_rng"] }
-rand_distr="0.4"
+rand_distr = "0.4"
 
 [profile.release]
 opt-level = 3
